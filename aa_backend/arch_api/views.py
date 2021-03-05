@@ -121,10 +121,6 @@ class AbstractWriter:
         _obj.save()
         return Response({"msg":"ok"})
 
-
-
-
-
 class SongWriter(AbstractWriter):
     model = Songs
     audio_type = "song"
@@ -179,10 +175,6 @@ class PodcastWriter(AbstractWriter):
 
             
         return super().update(id,validated_data)
-
-        
-            
-
 
 class WriterFactory:
     # Define which class will handle writing for which type of audio
