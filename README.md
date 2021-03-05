@@ -16,19 +16,19 @@ The API is as follows:
     - `narrator` : Narator of the audiobook
 
 
-#### GET : `archapi/<audio_type>/`
+#### GET : `/archapi/<audio_type>/`
 - Returns a list of meta data of all the audio files for given `audio_type`
 - For `audiobooks` it meta data will also have a field `guests` which is a list of names of podcast guests
 
 
-#### POST : `archapi/<audio_type>/`
+#### POST : `/archapi/<audio_type>/`
 - Creates a new entry
 - Apart of required fields for given `audio_type`, it requires `file` field which is the file to be uploaded
 
-#### GET : `archapi/<audio_type>/<audio_id>/`
+#### GET : `/archapi/<audio_type>/<audio_id>/`
 - Return audion file bearing the id `audio_id`
 
-#### PATCH: `archapi/<audio_type>/<audio_id>/`
+#### PATCH: `/archapi/<audio_type>/<audio_id>/`
 - Updated a entry. Any of the expeceted fields can be passed and it will be updated accordingly.
 - If `file` is passed, the old file will be replaced by the new file
 
