@@ -43,6 +43,10 @@ Following is how to setup a developer environment for the project
 - Create superuser (optional) : `python manage.py migrate createsuperuser`
 - Start dev server `python manage.py runserver`
 
+## Run tests
+- Go to project dir and run `source venv/bin/activate`
+- `cd aa_backend && python manage.py test`
+
 ## Design
 The API is designed to conform to REST. Following are details of how it works
 
@@ -57,7 +61,7 @@ The API is designed to conform to REST. Following are details of how it works
 - First one is done by `AudionSerializer` to see if all the common required fields are present and are of correct data type
 - The second level is done by the writer to check if additional fields required by a given model is provided or not
 
-### Reading and writing
+#### Reading and writing
 - The common reading and writing functionalities are abstracted into `AbstractWriter` and `GenericReader` which are then inherited by all the concrete readers and writer of models.
 - Interface of `AbstractWriter` is as follows
     - Fields required to be defined by childen
