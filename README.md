@@ -23,7 +23,7 @@ The API is as follows:
 
 #### POST : `archapi/<audio_type>/`
 - Creates a new entry
-- Apart of required fields for given `audio_type`, it required `file` field which is the file to be uploaded
+- Apart of required fields for given `audio_type`, it requires `file` field which is the file to be uploaded
 
 #### GET : `archapi/<audio_type>/<audio_id>/`
 - Return audion file bearing the id `audio_id`
