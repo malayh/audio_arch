@@ -1,3 +1,4 @@
+/audiofiles
 /venv
 __pycache__/
 /aa_backend/db.sqlite3

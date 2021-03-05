@@ -10,9 +10,61 @@ import time
 from django.http import FileResponse
 import os
 
+
+allowed_types = ("song", "audiobook", "podcast")
+allowed_uris = set([i+"s" for i in allowed_types])
+
+
 class AbstractWriter:
+    model : ClassVar = None
+    
+    #audio type must be one of "song", "audiobook", "podcast"
+    audio_type : str = None
+
+    # extra field that are required for a model which are not the standard ones. 
+    # Standard required field will be validated by AudioSerializer
+    extra_fields : list = []
+
+
     def write(self,validated_data):
-        raise NotImplementedError("Implement write method in child classes.")
+        """
+        Assuming validated_data is validated by AudioSerializer
+        """
+        if(not self.model):
+            raise ValueError("Must define model.")
+
+        if(self.audio_type not in allowed_types):
+            raise ValueError("Must define audio_type.")
+
+
+        for i in self.extra_fields:
+            if i not in validated_data:
+                return Response({"msg":f"Field missing: {i}"},status=status.HTTP_400_BAD_REQUEST)
+
+
+        file_format = validated_data["file"].content_type
+        file_name = f"{int(time.time())}{validated_data['file'].name}"
+
+
+        # this dict will be written as a model object
+        _data = {
+            "rel_path"      :file_name,
+            "file_format"   :file_format,
+            "audio_type"    :self.audio_type,
+            "upload_time"   :datetime.now()
+        }
+
+        for i in self.model._meta.fields:
+            if i.name in validated_data:
+                _data[i.name] = validated_data[i.name]
+
+        _obj = self.model(**_data)
+        _obj.save()
+
+        self.write_file(validated_data["file"],file_name)
+
+
+        return Response({"msg":"ok"})
 
     def write_file(self,file_obj,file_name):
         path = settings.FILE_STORE_DIR.joinpath(file_name).resolve()
@@ -20,48 +72,72 @@ class AbstractWriter:
             for chunk in file_obj.chunks():
                 f.write(chunk)
 
-class SongWriter(AbstractWriter):
-    def write(self, validated_data):
-        file_format = validated_data["file"].content_type
-        file_name = f"{int(time.time())}{validated_data['file'].name}"
-        Songs(
-            audio_type  ="song",
-            title=validated_data['title'],
-            creator=validated_data["creator"],
-            duration_s=validated_data["duration_s"],
-            upload_time=datetime.now(),
-            rel_path=file_name,
-            file_format=file_format
-        ).save()
+    def update(self,id,validated_data):
+        """
+        Fully or partially updates an entity.
+        """
+        if(not self.model):
+            raise ValueError("Must define model.")
+
+        if(self.audio_type not in allowed_types):
+            raise ValueError("Must define audio_type.")
 
 
-        self.write_file(validated_data["file"],file_name)
+        try:
+            _obj = self.model.objects.get(id=id)
+        except self.model.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # this will be passed to _obj.save method
+        _data = {}
+
+        for i in self.model._meta.fields:
+            if i.name in validated_data:
+                _data[i.name] = validated_data[i.name]
+
+        if "file" in validated_data:
+            file_format = validated_data["file"].content_type
+            file_name = f"{int(time.time())}{validated_data['file'].name}"
+
+            _data.update(
+                {
+                "rel_path"      :file_name,
+                "file_format"   :file_format,
+                "upload_time"   :datetime.now()
+                }
+            )
+
+            path = settings.FILE_STORE_DIR.joinpath(_obj.rel_path).resolve()
+            try:
+                os.remove(path)
+            except:
+                pass
+
+            self.write_file(validated_data["file"],file_name)
+
+        for attr, val in _data.items():
+            setattr(_obj,attr,val)
+
+        _obj.save()
         return Response({"msg":"ok"})
+
+
+
+
+
+class SongWriter(AbstractWriter):
+    model = Songs
+    audio_type = "song"
 
 class AudiobookWriter(AbstractWriter):
-    def write(self, validated_data):
-        if 'narrator' not in validated_data:
-            return Response({"msg":"Field missing: narrator: str"},status=status.HTTP_400_BAD_REQUEST)
-
-        file_format = validated_data["file"].content_type
-        file_name = f"{int(time.time())}{validated_data['file'].name}"
-
-        Audiobooks(
-            audio_type  ="audioboook",
-            title=validated_data['title'],
-            creator=validated_data["creator"],
-            duration_s=validated_data["duration_s"],
-            upload_time=datetime.now(),
-            rel_path=file_name,
-            file_format=file_format,
-            narrator=validated_data["narrator"]
-        ).save()
-
-        self.write_file(validated_data["file"],file_name)
-        return Response({"msg":"ok"})
-
+    model = Audiobooks
+    audio_type = "audiobook"
+    extra_fields = ["narrator"]
+    
 class PodcastWriter(AbstractWriter):
+    model = Podcasts
+    audio_type = "podcast"
+
     def write(self,validated_data):
         if 'podcast_guests' not in validated_data:
             return Response({"msg":"Field missing: podcast_guests: List of coma separated str"},status=status.HTTP_400_BAD_REQUEST)
@@ -86,7 +162,28 @@ class PodcastWriter(AbstractWriter):
 
         self.write_file(validated_data["file"],file_name)
         return Response({"msg":"ok"})
+
+    def update(self,id,validated_data):
+        if "podcast_guests" in validated_data:
+            try:
+                _obj = self.model.objects.get(id=id)
+            except self.model.DoesNotExist:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+            _pg = PodcastGuests.objects.filter(podcast_fk=_obj).all()
+            for i in _pg:
+                i.delete()
+
+            for i in validated_data["podcast_guests"].strip().split(","):
+                PodcastGuests(podcast_fk=_obj,guest_name=i).save()
+
+            
+        return super().update(id,validated_data)
+
         
+            
+
+
 class WriterFactory:
     # Define which class will handle writing for which type of audio
     WRITER_MAP = {
@@ -128,6 +225,12 @@ class GenericReader:
             _obj = self.MODEL.objects.get(id=id)
         except self.MODEL.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+        path = settings.FILE_STORE_DIR.joinpath(_obj.rel_path).resolve()
+        try:
+            os.remove(path)
+        except:
+            pass
 
         _obj.delete()
         return Response({"msg":"ok"})
@@ -183,11 +286,15 @@ class ReaderFactory:
 
 class AudioList(APIView):
     def get(self,request,audio_type:str):
-        _objs = Songs.objects.all()
+        if(audio_type not in allowed_uris):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         _reader = ReaderFactory.get_reader(audio_type)()
         return _reader.readall()
 
     def post(self,request,audio_type:str):
+        if(audio_type not in allowed_uris):
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         _s = AudioSerializer(data=request.data)
         _s.is_valid(raise_exception=True)
@@ -196,14 +303,24 @@ class AudioList(APIView):
         return _writer.write(_s.validated_data)
         
 class AudioDetail(APIView):
-    def put(self,request,audio_type:str, id:int):
-        return Response({"msg":"tesing"})
+    def patch(self,request,audio_type:str, id:int):
+        _s = AudioSerializer(data=request.data,partial=True)
+        _s.is_valid(raise_exception=True)
+        _writer = WriterFactory.get_writer(audio_type)()
+
+        return _writer.update(id,_s.validated_data)
 
     def get(self,request,audio_type:str, id:int):
+        if(audio_type not in allowed_uris):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         _reader = ReaderFactory.get_reader(audio_type)()
         return _reader.download(id)
 
     def delete(self,request,audio_type:str, id:int):
+        if(audio_type not in allowed_uris):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         _reader = ReaderFactory.get_reader(audio_type)()
         return _reader.delete(id)
         
